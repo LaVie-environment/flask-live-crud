@@ -7,6 +7,18 @@ app.config['SQLALCHEMY_DATABASE_URI'] = environ.get('DB_URL')
 db = SQLAlchemy(app)
 
 class User(db.Model):
+    """
+    Represents a user in the system.
+
+    Attributes:
+      id (int): Primary key, unique identifier for the user.
+      username (str): Unique username for the user, cannot be null.
+      email (str): Unique email address for the user, cannot be null.
+
+    Methods:
+      json():
+        Returns a dictionary representation of the user instance with keys 'id', 'username', and 'email'.
+    """
     __tablename__ = 'users'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -33,7 +45,7 @@ def create_user():
     db.session.add(new_user)
     db.session.commit()
     return make_response(jsonify({'message': 'user created'}), 201)
-  except e:
+  except Exception as e:
     return make_response(jsonify({'message': 'error creating user'}), 500)
 
 # get all users
@@ -42,7 +54,7 @@ def get_users():
   try:
     users = User.query.all()
     return make_response(jsonify([user.json() for user in users]), 200)
-  except e:
+  except Exception as e:
     return make_response(jsonify({'message': 'error getting users'}), 500)
 
 # get a user by id
@@ -53,7 +65,7 @@ def get_user(id):
     if user:
       return make_response(jsonify({'user': user.json()}), 200)
     return make_response(jsonify({'message': 'user not found'}), 404)
-  except e:
+  except Exception as e:
     return make_response(jsonify({'message': 'error getting user'}), 500)
 
 # update a user
@@ -68,8 +80,8 @@ def update_user(id):
       db.session.commit()
       return make_response(jsonify({'message': 'user updated'}), 200)
     return make_response(jsonify({'message': 'user not found'}), 404)
-  except e:
-    return make_response(jsonify({'message': 'error updating user'}), 500)
+  except Exception as e:
+    return make_response(jsonify({'message': 'error updating user', 'error': str(e)}), 500)
 
 # delete a user
 @app.route('/users/<int:id>', methods=['DELETE'])
@@ -81,5 +93,5 @@ def delete_user(id):
       db.session.commit()
       return make_response(jsonify({'message': 'user deleted'}), 200)
     return make_response(jsonify({'message': 'user not found'}), 404)
-  except e:
-    return make_response(jsonify({'message': 'error deleting user'}), 500)
+  except Exception as e:
+    return make_response(jsonify({'message': 'error deleting user', 'error': str(e)}), 500)
