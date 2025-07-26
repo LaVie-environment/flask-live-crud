@@ -2,9 +2,9 @@ name: Docker Build and Test
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   DB_URL: postgresql://postgres:postgres@postgres:5432/postgres
@@ -28,52 +28,66 @@ jobs:
           --health-retries 5
         volumes:
           - pgdata:/var/lib/postgresql/data
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-    
-    - name: Login to Docker Hub
-      if: github.ref == 'refs/heads/main'
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKER_HUB_USERNAME }}
-        password: ${{ secrets.DOCKER_HUB_TOKEN }}
-    
-    - name: Build Docker image
-      run: docker build -t lavie/flask_live_app:1.0.0 .
-    
-    - name: Run tests
-      run: |
-        docker network create test-network
-        docker run -d --name test-postgres --network test-network \
-          -e POSTGRES_PASSWORD=postgres \
-          -e POSTGRES_USER=postgres \
-          -e POSTGRES_DB=postgres \
-          postgres:12
-        docker run --name test-app --network test-network \
-          -e DB_URL=postgresql://postgres:postgres@test-postgres:5432/postgres \
-          -p 4000:4000 \
-          lavie/flask_live_app:1.0.0 &
-        
-        # Wait for the app to be ready
-        sleep 10
-        
-        # Test the /test endpoint
-        curl -X GET http://localhost:4000/test
-        
-        # Add more tests as needed
-    
-    - name: Push to Docker Hub
-      if: github.ref == 'refs/heads/main'
-      run: docker push lavie/flask_live_app:1.0.0
-    
-    - name: Cleanup
-      run: |
-        docker stop test-app || true
-        docker rm test-app || true
-        docker stop test-postgres || true
-        docker rm test-postgres || true
-        docker network rm test-network || true
+      - uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Hub
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Build Docker image
+        run: docker build -t lavie/flask_live_app:1.0.0 .
+
+      - name: Run tests
+        run: |
+          docker network create test-network
+          
+          # Start PostgreSQL with health check
+          docker run -d --name test-postgres --network test-network \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_DB=postgres \
+            --health-cmd "pg_isready -U postgres" \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            postgres:12
+
+          # Wait for PostgreSQL to be ready
+          until docker run --rm --network test-network postgres:12 pg_isready -h test-postgres -U postgres; do
+            sleep 1
+          done
+
+          # Start Flask app
+          docker run --name test-app --network test-network \
+            -e DB_URL=postgresql://postgres:postgres@test-postgres:5432/postgres \
+            -p 4000:4000 \
+            lavie/flask_live_app:1.0.0 &
+
+          # Wait for Flask to be ready
+          until curl --retry 5 --retry-delay 5 -X GET http://localhost:4000/test; do
+            sleep 1
+          done
+
+          # Run additional tests
+          curl -X POST http://localhost:4000/users -H "Content-Type: application/json" -d '{"username":"test","email":"test@example.com"}'
+          curl -X GET http://localhost:4000/users
+
+      - name: Push to Docker Hub
+        if: github.ref == 'refs/heads/main'
+        run: docker push lavie/flask_live_app:1.0.0
+
+      - name: Cleanup
+        run: |
+          docker stop test-app || true
+          docker rm test-app || true
+          docker stop test-postgres || true
+          docker rm test-postgres || true
+          docker network rm test-network || true
